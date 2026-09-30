@@ -9,7 +9,8 @@ included. There are two patchers:
 - `pc_patch.py`: the PC release (Steam).
 - `psx_patch.py`: PlayStation disc images (.cue/.bin), for use on an emulator or console.
 
-> **Just want the PC files?** Ready-made drop-in files are on NexusMods: **NEXUS_MODS_URL**.
+> **Just want the PC files?** Ready-made drop-in files are on NexusMods:
+> **[Playable Giganotosaurus on NexusMods](https://www.nexusmods.com/dinocrisis2/mods/7)**.
 > You don't need Python or these scripts to use them.
 
 ## What changes
