@@ -1,0 +1,10 @@
+# Never commit game data or patched output
+output/
+*.DAT
+*.dat
+*.TEX
+*.tex
+*.bin
+*.cue
+*.chd
+__pycache__/
