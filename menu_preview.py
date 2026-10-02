@@ -122,12 +122,14 @@ def build_title(title, e4):
     return bytes(out)
 
 
-def build_tex(tex, e4):
-    """PC M_E10.TEX with the Giga's texture page and CLUT."""
-    walked = walk(e4)
-    t_off = [off for _, w, off in walked if w[0] == 1][0]
-    c_off = [off for _, w, off in walked if w[0] == 2][0]
+def build_tex(tex, e4, face=None):
+    """PC M_E10.TEX with the Giga's texture page and CLUT, or `face` ((texture, CLUT))."""
+    if face is None:
+        walked = walk(e4)
+        t_off = [off for _, w, off in walked if w[0] == 1][0]
+        c_off = [off for _, w, off in walked if w[0] == 2][0]
+        face = e4[t_off:t_off + 0x10000], e4[c_off:c_off + 0x200]
     out = bytearray(tex)
-    out[0x800:0x10800] = e4[t_off:t_off + 0x10000]
-    out[0x10800:0x10A00] = e4[c_off:c_off + 0x200]
+    out[0x800:0x10800] = face[0]
+    out[0x10800:0x10A00] = face[1]
     return bytes(out)

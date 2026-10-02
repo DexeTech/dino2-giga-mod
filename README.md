@@ -1,7 +1,8 @@
 # Playable Giganotosaurus for Dino Crisis 2
 
 Play as the Giganotosaurus in Dino Crisis 2's Extra Crisis modes. It replaces the playable
-T-Rex in the Dino Colosseum and in Dino Duel, and on the character select screen.
+T-Rex in the Dino Colosseum and in Dino Duel, and on the character select screen. Optionally,
+the Colosseum raptor can get the Dino Duel "Ultra Raptor" skin too.
 
 These are Python scripts that build the mod from **your own copy of the game**. No game data is
 included. There are two patchers:
@@ -20,14 +21,20 @@ Where the T-Rex was, you get the Giganotosaurus:
 - **Colosseum:** the playable T-Rex (`WEP_PR10.DAT`).
 - **Dino Duel:** player 1 (`KOF_P10P.DAT`) and player 2 (`KOF_P11P.DAT`).
 - **Character select screen:** the preview model (`M_TITLE.DAT`, `M_E10.TEX`).
+- **Colosseum raptor (optional):** with `--ultra-raptor`, the raptor (`WEP_PR0D.DAT`) and its
+  preview (`M_E00.TEX`) take the texture and palette of the Ultra Raptor from Dino Duel
+  (`KOF_P01P.DAT`), which uses the same model.
 
 For each of these, the mod changes:
 
 - **Model and texture:** the T-Rex's model and texture are replaced by the Giganotosaurus's.
-- **Sounds:** the Giganotosaurus's roars and footsteps replace the T-Rex's.
-- **Animations:** the Giganotosaurus's own walk, walking backwards, run, bites, roars and death.
-  The moves it has no animation for use the T-Rex's motion, scaled up to its size: the charge,
-  turns, flinches, hop back, running bites and the other death.
+  You can pick its normal face (the default) or its burnt face.
+- **Sounds:** the Giganotosaurus's roars and footsteps replace the T-Rex's. Moves that use a
+  Giganotosaurus animation also play that animation's own sounds, timed to its poses. Which
+  Giganotosaurus sound replaces each T-Rex sound was chosen by ear.
+- **Animations:** the Giganotosaurus's own walk, walking backwards, run, roar and death. The
+  other moves use the T-Rex's motion, scaled up to its size: the bites (so the head still
+  reaches the ground), the special attack, flinches, staggers, hop back and the other death.
 - **Hit spheres:** attacks hit where the T-Rex's did.
 
 Known limitations:
@@ -56,9 +63,9 @@ Known limitations:
    python pc_patch.py "C:\...\Dino Crisis 2\english\Data" --install
    ```
 
-   The first install backs up the five original files to `Data\giga_mod_backup`. It then copies
-   the patched files into `Data`. The patched files are also written to `output\` next to the
-   scripts.
+   The first install backs up the original files it replaces to `Data\giga_mod_backup`. It
+   then copies the patched files into `Data`. The patched files are also written to `output\`
+   next to the scripts.
 3. Start the game. In Extra Crisis, choose the T-Rex.
 
 To remove the mod:
@@ -106,10 +113,17 @@ Both patchers accept these options:
 | `--scale-hitboxes` | Scale the hit spheres with the body; they then reach past enemies |
 | `--no-menu` | Leave the character select screen alone |
 | `--no-duel` | Leave the Dino Duel files alone |
+| `--map=SLOT:GIGA,...` | Play these Giganotosaurus animations in these T-Rex slots for this run, e.g. `--map=24:21`. `A+B+C` plays several one after another in one slot |
+| `--trex-slots=SLOT,...` | Keep the T-Rex animation in these slots for this run |
+| `--normal-face` | Use the Giganotosaurus's normal face texture (the default) |
+| `--burnt-face` | Use its burnt face texture (`E41.TEX`) |
+| `--face-tex=FILE` | Use the face texture from another `E41.TEX`-style file |
+| `--ultra-raptor` | Give the Colosseum raptor the Dino Duel Ultra Raptor skin |
+| `--wav-map-roars` | Send the roars through `REX_TO_GIGA` too, instead of the Giganotosaurus's own roar |
 
 `pc_patch.py` also takes `--out DIR`, `--install` and `--restore`, as described above.
 
-To change which Giganotosaurus animation plays for each move, edit `MAPPING` in
+To change which Giganotosaurus animation plays for each move for good, edit `MAPPING` in
 `giga_anims.py`.
 
 ## How it works
@@ -121,12 +135,17 @@ around it:
   T-Rex's skeleton scaled by 1.38, and both have 20 parts in the same hierarchy, so the T-Rex's
   animations and game code still fit it.
 - **Animations:** the Giganotosaurus's frames are resampled to the length of the T-Rex move they
-  replace. Attack frames are lined up so the bite lands when the game expects it. Each move keeps
-  the T-Rex's timing, root motion, hit data and sound cues.
+  replace. Attack frames are lined up so a strike lands when the game expects it. Each move keeps
+  the T-Rex's timing, root motion and hit data. Its sound cues come from the Giganotosaurus
+  animation, retimed the same way.
 - **Hit spheres:** worked out with forward kinematics. Each sphere is placed where the T-Rex's was
   in the world on the same frame, then expressed relative to the Giganotosaurus's bone.
 - **Sounds:** the Giganotosaurus's sound bank is used. It is mapped onto the T-Rex's sound event
-  table, which the game code triggers by event number.
+  table, which the game code triggers by event number. Events only the Giganotosaurus has are
+  added, so its animations' sound cues all play. Which T-Rex sound becomes which
+  Giganotosaurus sound is set by `REX_TO_GIGA` in `character.py`, for both versions; the roars
+  use the Giganotosaurus's own. On PlayStation, the samples' sound RAM addresses are also moved
+  to where the T-Rex's samples are loaded.
 - **Character select preview:** the Giganotosaurus model is fitted into the T-Rex preview's fixed
   memory slot.
 - **PlayStation only:** each file keeps its original sector count, because the disc loader
@@ -146,5 +165,16 @@ The module docstrings describe the file formats in detail.
 
 ## Credits
 
+Thanks to:
+
+- **[VictowiaUwU](https://github.com/VictowiaUwU)** for the PlayStation sound fix, the sound
+  choices, the roar and special attack animations, the Ultra Raptor skin and the burnt face
+  option.
+- **[SpikeTheEditor](https://github.com/SpikeTheEditor)** for testing and feedback.
+
 Dino Crisis 2 is © Capcom. This project is an unofficial fan mod. It is not affiliated with or
 endorsed by Capcom.
+
+## License
+
+GPL-3.0. See [LICENSE](LICENSE).

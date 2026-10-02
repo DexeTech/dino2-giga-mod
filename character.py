@@ -279,40 +279,103 @@ def scale_hitboxes(blk, base, anim_ofs, limit, scale):
 
 # ---------------------------------------------------------------- sounds
 
-def build_sounds(pr, psec, e4, esec):
-    """E40 sound bank with an event table in the player's layout.
+# T-Rex wav -> Giga wav that plays in its place, chosen by ear. Wavs are numbered from 1 in
+# sample order: the PC SFX table's wav ids, which are the PlayStation samples in SPU order.
+REX_TO_GIGA = {
+    1: 6,
+    2: 3,
+    3: 5,
+    4: 2,
+    5: 7,
+    6: 4,
+    7: 4,
+    8: 1,
+    9: 2,
+}
+ROAR_EVENTS = (18, 19, 20)       # events of cues 0x42-0x44, the roars: they keep the Giga's own
 
-    Game code triggers sounds by event number; the T-Rex and Giga tables use the same
-    numbering for shared roles (0-5 footsteps, 8-12 vocalisations), so take the Giga's
-    SFX reference per event, keep the player's per-event flags and bank slot, and send any
-    event the Giga leaves unassigned (or pointing at an empty SFX slot) to a valid sound."""
+
+def map_events(pev, gev, rex_wav, giga_wav, flags=()):
+    """Event table for the Giga's sounds in the player's layout and bank slot.
+
+    pev and gev are the player's and the Giga's event tables (8 bytes per event: flags, bank
+    slot, sfx slot << 4 | nibble big endian, padding); rex_wav and giga_wav give the wav number
+    of each one's sfx slots. A player event plays the Giga wav that REX_TO_GIGA gives for the
+    T-Rex wav it played, through the slot the Giga's own events use for that wav. The roar
+    events keep the Giga's own entry (unless --wav-map-roars is given), and events only the
+    Giga uses (its animations cue them, see giga_anims.py) get its entry on the player's bank
+    slot. Returns (table, log)."""
+    for r, gw in REX_TO_GIGA.items():
+        if r not in rex_wav.values() or gw not in giga_wav.values():
+            raise ValueError('REX_TO_GIGA entry %d -> %d: no such T-Rex / Giga wav' % (r, gw))
+    slot = lambda e: (e[2] << 8 | e[3]) >> 4
+    giga_ref = {}                                  # Giga wav -> the entry its own events use
+    for i in range(0, EVENT_TABLE_SIZE, 8):
+        q = gev[i:i + 8]
+        if q[0] != 0xFF and slot(q) in giga_wav:
+            giga_ref.setdefault(giga_wav[slot(q)], q[2:4])
+    for s, w in sorted(giga_wav.items()):          # wavs no event uses: their first slot
+        giga_ref.setdefault(w, struct.pack('>H', s << 4 | 5))
+
+    bank_slot = next(pev[i + 1] for i in range(0, EVENT_TABLE_SIZE, 8) if pev[i] != 0xFF)
+    table, fallback, log = bytearray(pev[:EVENT_TABLE_SIZE]), None, []
+    for i in range(0, EVENT_TABLE_SIZE, 8):
+        p, q, ev = pev[i:i + 8], gev[i:i + 8], i // 8
+        ok = q[0] != 0xFF and slot(q) in giga_wav
+        if ok:
+            fallback = q[2:4]
+        if p[0] == 0xFF:
+            if ok:                                 # an event only the Giga uses
+                table[i:i + 8] = bytes((q[0], bank_slot)) + q[2:8]
+                log.append('ev%d:giga only' % ev)
+            continue
+        rw = rex_wav.get(slot(p))
+        if ev in ROAR_EVENTS and ok and '--wav-map-roars' not in flags:
+            ref, tag = q[2:4], 'giga roar'
+        elif rw in REX_TO_GIGA:
+            ref, tag = giga_ref[REX_TO_GIGA[rw]], 'rex%d>giga%d' % (rw, REX_TO_GIGA[rw])
+        else:
+            ref, tag = (q[2:4], 'default') if ok else (fallback, 'fallback')
+        table[i + 2:i + 4] = ref
+        log.append('ev%d:%s' % (ev, tag))
+    return bytes(table), log
+
+
+def sfx_wavs(bank):
+    """{sfx slot: wav id} of a PC sound bank's 32-slot SFX table (wav id 0 = empty slot)."""
+    return {i: w for i in range(32) for w in struct.unpack_from('<H', bank, i * 8) if w}
+
+
+def build_sounds(pr, psec, e4, esec, flags=()):
+    """E40 sound bank with an event table in the player's layout (see map_events)."""
     _, _, poff, psize = psec
     _, _, eoff, esize = esec
     bank = e4[eoff:eoff + esize]
-    sfx_used = lambda i: i < 32 and struct.unpack_from('<H', bank, i * 8)[0] != 0
     pev = pr[poff + ((psize + 0x7FF) & ~0x7FF):][:0x800]
     eev = e4[eoff + ((esize + 0x7FF) & ~0x7FF):][:0x800]
-
-    table = bytearray(pev[:EVENT_TABLE_SIZE])
-    fallback = None
-    log = []
-    for i in range(0, EVENT_TABLE_SIZE, 8):
-        p, g = pev[i:i + 8], eev[i:i + 8]
-        g_ok = g[0] != 0xFF and sfx_used((g[2] << 8 | g[3]) >> 4)
-        if g_ok:
-            fallback = g[2:4]
-        if p[0] == 0xFF:
-            continue                               # event unused by the player code
-        ref = g[2:4] if g_ok else fallback
-        table[i + 2:i + 4] = ref
-        log.append((i // 8, (ref[0] << 8 | ref[1]) >> 4, '' if g_ok else ' (fallback)'))
-    sector = bytes(table) + pev[EVENT_TABLE_SIZE:]
-    return bank, sector, log
+    table, log = map_events(pev, eev, sfx_wavs(pr[poff:poff + psize]), sfx_wavs(bank), flags)
+    return bank, table + pev[EVENT_TABLE_SIZE:], log
 
 
-def assemble(target, e4, blk, swap_sounds):
-    """Rebuild a character DAT: target header/layout, E40 texture + CLUT, optional E40 sound
-    bank (event table kept in the target's layout and bank slot), and the new model block."""
+def main_texture(dat):
+    """(texture, CLUT) of a file's main texture page, e.g. E41.TEX (the Giga's burnt face)."""
+    secs = sections(dat)
+    t, c = section(secs, 1, 0x10000), section(secs, 2, 0x200)
+    return dat[t[2]:t[2] + 0x10000], dat[c[2]:c[2] + 0x200]
+
+
+def with_texture(dat, texture):
+    """`dat` with its main texture page and CLUT replaced by `texture` ((texture, CLUT))."""
+    secs, out = sections(dat), bytearray(dat)
+    for (typ, size), data in zip(((1, 0x10000), (2, 0x200)), texture):
+        off = section(secs, typ, size)[2]
+        out[off:off + size] = data
+    return bytes(out)
+
+
+def assemble(target, e4, blk, swap_sounds, flags=(), face=None):
+    """Rebuild a character DAT: target header/layout, E40 texture + CLUT (or `face`, a
+    (texture, CLUT) pair), optional E40 sound bank (see build_sounds), and the new model block."""
     ts, es = sections(target), sections(e4)
     comp = lz_compress(blk)
     assert lz_decompress(comp) == blk, 'compressor round-trip failed'
@@ -321,19 +384,19 @@ def assemble(target, e4, blk, swap_sounds):
     for ho, w, off, size in ts:
         if w[0] == 3:
             if swap_sounds:
-                bank, sector, ev = build_sounds(target, (ho, w, off, size), e4, section(es, 3))
+                bank, sector, ev = build_sounds(target, (ho, w, off, size), e4, section(es, 3), flags)
                 struct.pack_into('<I', out, ho + 4, len(bank))
-                log = 'sounds: Giga bank; event -> sfx slot: ' + ', '.join('%d->%d%s' % e for e in ev)
+                log = 'sounds: Giga bank: ' + ', '.join(ev)
             else:
                 bank = target[off:off + size]
                 sector = target[off + ((size + 0x7FF) & ~0x7FF):][:0x800]
             out += pad(bank) + sector
         elif w[0] == 1 and w[1] == 0x10000:          # main texture -> E40 pixels
             eo = section(es, 1)[2]
-            out += pad(e4[eo:eo + 0x10000])
+            out += pad(face[0] if face else e4[eo:eo + 0x10000])
         elif w[0] == 2 and w[1] == 0x200:            # main CLUT -> E40 CLUT
             eo = section(es, 2)[2]
-            out += pad(e4[eo:eo + 0x200])
+            out += pad(face[1] if face else e4[eo:eo + 0x200])
         elif w[0] == 5:
             struct.pack_into('<I', out, ho + 4, len(comp))
             out += pad(comp)
