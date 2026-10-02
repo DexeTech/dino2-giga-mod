@@ -24,17 +24,24 @@ MAPPING = {
     1: 5,     # walk backwards (-175/frame)  <- Giga walk backwards (-214/frame)
     2: 2,     # run, toe stomps (+600/frame) <- Giga run (+650/frame)
     7: 27,    # death, falls to -x           <- Giga death (falls to -x)
-    8: 7,     # walking bite                 <- Giga moving bite
-    9: 8,     # walking bite                 <- Giga moving bite (variant)
-    10: 7,    # walking bite                 <- Giga moving bite
-    11: 20,   # standing bite                <- Giga standing bite
-    12: 12,   # standing bite                <- Giga standing bite (jaw)
+    4: 1,     # ROAR ability (plain one-shot move, no hit, cue 0x38)       <- Giga roar (cue 0x38)
     21: 21,   # roar while backing off       <- Giga roar while backing off
     22: 22,   # roar while backing off       <- Giga roar (variant)
     24: 26,   # long roar                    <- Giga roar (cue 0x44)
     25: 26,   # long roar (variant)          <- Giga roar (cue 0x44)
 }
-# Not mapped (T-Rex motion, root-scaled): 3 charge, 4/5/23 turns, 6 death to +x (the Giga's
+# Slots 3 and 4 were found by reading the T-Rex's own move code (WEP_PR10 type-7 code block): the
+# game calls slot 3 for the special (it also spawns an effect) and slot 4 for the plain roar.
+# Slot 3 (special) keeps the T-Rex animation on purpose: the Giga roar made it start late.
+# Giga animation 1 is the Giga's real roar (176 ticks, sound cue 0x38 = its big roar sample); Giga 21-26
+# turned out to be hit flinches with pain roars. Slots 21/22/24/25 are never called by that code, and slot 23 is a hit stagger (with 5).
+# A value can also be a tuple, e.g. 24: (23, 24, 25, 26): those Giga animations are played one
+# after another and squeezed into the slot's frame count. Giga roars seen in E40:
+#   21/22 long roar while backing off (29 frames, cue 0x42)   23/24 short roar (11 frames, 0x42)
+#   25 medium roar (12 frames, 0x43)                         26 big roar + step (17 frames, 0x44)
+# Attacks are NOT mapped on purpose: the T-Rex bites (slots 8-12, 13/14 running bites, 3 charge) keep
+# their own motion so the head keeps reaching the ground. (Giga bites were 7, 8, 12, 20.)
+# Not mapped (T-Rex motion, root-scaled): 8-12 bites, 5/23 staggers, 6 death to +x (the Giga's
 # only death falls the other way), 13/14 running bites, 15/18 hop back, 16/17/19/20 flinches.
 
 
@@ -97,10 +104,11 @@ def apply_giga_anims(blk, base, anim_ofs, limit, eblk, ebase, mapping=MAPPING):
     for slot, gi in sorted(mapping.items()):
         a = slots[slot]
         dst = _frames(blk, a)
-        g = _frames(eblk, src[gi])
-        assert g, 'Giga animation %d is empty' % gi
+        gis = tuple(gi) if isinstance(gi, (tuple, list)) else (gi,)
+        g = [f for x in gis for f in _frames(eblk, src[x])]
+        assert g, 'Giga animation %s is empty' % (gi,)
         dwin = _hit_window(blk, a, base, dst)
-        gwin = _hit_window(eblk, src[gi], ebase, g)
+        gwin = _hit_window(eblk, src[gis[0]], ebase, g) if len(gis) == 1 else None
         for t in range(len(dst)):
             vals = _sample(g, _warp(t, len(dst), len(g), dwin, gwin))
             p = a + 0x14 + t * FRAME_SIZE
@@ -108,7 +116,7 @@ def apply_giga_anims(blk, base, anim_ofs, limit, eblk, ebase, mapping=MAPPING):
             struct.pack_into('<60h', blk, p + 16, *vals[6:])      # part rotations
             # p + 10: the slot's own root motion is kept
         done.add(a)
-        lines.append('%d<-%d%s' % (slot, gi, ' (hit-aligned)' if dwin and gwin else ''))
+        lines.append('%d<-%s%s' % (slot, '+'.join(map(str, gis)), ' (hit-aligned)' if dwin and gwin else ''))
     return 'Giga animations: ' + ', '.join(lines), done
 
 
